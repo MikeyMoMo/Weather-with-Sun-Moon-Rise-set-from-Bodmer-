@@ -43,7 +43,7 @@ const String units = "metric";
 
 // Sign up for a key and read API configuration info here:
 // https://openweathermap.org/, change x's to your API key
-const String api_key = "2874af657bd3f25f664000b1cbaddc66";
+const String api_key = "Your_free_key";
 
 // Set the forecast longitude and latitude to at least 4 decimal places
 const String latitude =  "18.512989"; // 90.0000 to -90.0000 negative for Southern hemisphere

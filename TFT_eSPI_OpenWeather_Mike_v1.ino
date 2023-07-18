@@ -176,10 +176,11 @@ void setup() {
 ***************************************************************************************/
 void loop() {
 
-  local_time = TIMEZONE.toLocal(now(), &tz1_Code);
+  // Request and synchronise the local clock
+  syncTime(); local_time = TIMEZONE.toLocal(now(), &tz1_Code);
 
   // Check if we should update weather information. Done hourly.
-  if (booted || (lastHour != hour()))
+  if (booted || (lastHour != hour(local_time)))
   {
     Serial.printf("Setting screen brightness for hour %i to %i\r\n",
                   hour(local_time), hourlyBrilliance[hour(local_time)]);
@@ -188,22 +189,18 @@ void loop() {
   }
 
   // If minute has changed then request new time from NTP server
-  if (booted || (lastSecond != second()))
+  if (booted || (lastSecond != second(local_time)))
   {
     // Update displayed time first as we may have to wait for a response
     drawTime();
-
-    // Request and synchronise the local clock
-    syncTime();
-
 #ifdef SCREEN_SERVER
     screenServer();
 #endif
   }
   booted = false;
-  lastSecond = second();
-  lastMinute = minute();
-  lastHour   = hour();
+  lastSecond = second(local_time);
+  lastMinute = minute(local_time);
+  lastHour   = hour(local_time);
 }
 /***************************************************************************************
 **                          Fetch the weather data  and update screen
@@ -339,7 +336,8 @@ void drawTime() {
   tft.loadFont(AA_FONT_LARGE);
 
   // Convert UTC to local time, returns zone code in tz1_Code, e.g "GMT"
-  time_t local_time = TIMEZONE.toLocal(now(), &tz1_Code);
+  // Now done in loop for all to use.
+  //  time_t local_time = TIMEZONE.toLocal(now(), &tz1_Code);
 
   String timeNow = "";
 
@@ -498,7 +496,7 @@ void drawAstronomy() {
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextPadding(tft.textWidth(" Last qtr "));
 
-  time_t local_time = TIMEZONE.toLocal(current->dt, &tz1_Code);
+  //  time_t local_time = TIMEZONE.toLocal(current->dt, &tz1_Code);
   uint16_t y = year(local_time);
   uint8_t  m = month(local_time);
   uint8_t  d = day(local_time);
@@ -704,7 +702,7 @@ void printWeather(void)
 ***************************************************************************************/
 String strTime(time_t unixTime)
 {
-  time_t local_time = TIMEZONE.toLocal(unixTime, &tz1_Code);
+  //  time_t local_time = TIMEZONE.toLocal(unixTime, &tz1_Code);
 
   String localTime = "";
 
@@ -721,7 +719,7 @@ String strTime(time_t unixTime)
 ***************************************************************************************/
 String strDate(time_t unixTime)
 {
-  time_t local_time = TIMEZONE.toLocal(unixTime, &tz1_Code);
+  //  time_t local_time = TIMEZONE.toLocal(unixTime, &tz1_Code);
 
   String localDate = "";
 

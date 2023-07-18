@@ -29,7 +29,7 @@
 // Setttings defined below
 
 #define WIFI_SSID      "MikeysWAP"
-#define WIFI_PASSWORD  "Noogly99"
+#define WIFI_PASSWORD  "Your_PW"
 
 #define TIMEZONE HK // See NTP_Time.h tab for other "Zone references", UK, usMT etc
 

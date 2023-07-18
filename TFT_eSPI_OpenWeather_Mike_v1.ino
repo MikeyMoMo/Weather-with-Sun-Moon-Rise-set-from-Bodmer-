@@ -59,6 +59,7 @@
 #include <OpenWeather.h>  // Latest here: https://github.com/Bodmer/OpenWeather
 
 #include "NTP_Time.h"     // Attached to this sketch, see that tab for library needs
+time_t local_time;
 
 /***************************************************************************************
 **                          Define the globals and class instances
@@ -175,11 +176,14 @@ void setup() {
 ***************************************************************************************/
 void loop() {
 
+  local_time = TIMEZONE.toLocal(now(), &tz1_Code);
+
   // Check if we should update weather information. Done hourly.
   if (booted || (lastHour != hour()))
   {
-    Serial.printf("Setting screen brightness to %i\r\n", hourlyBrilliance[hour()]);
-    ledcWrite(pwmLedChannelTFT, hourlyBrilliance[hour()]);
+    Serial.printf("Setting screen brightness for hour %i to %i\r\n",
+                  hour(local_time), hourlyBrilliance[hour(local_time)]);
+    ledcWrite(pwmLedChannelTFT, hourlyBrilliance[hour(local_time)]);
     updateData();
   }
 

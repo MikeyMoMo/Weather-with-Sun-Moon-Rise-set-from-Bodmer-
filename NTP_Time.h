@@ -49,7 +49,7 @@ IPAddress timeServerIP;                     // Use server pool
 // to add more time zones https://github.com/JChristensen/Timezone
 
 TimeChangeRule PHT = {"PHT", First, dowSunday, Nov, 2, 480};
-Timezone HK(PHT, PHT);
+Timezone HK(PHT, PHT);  // Same rule for both means no DST.
 
 // Zone reference "UK" United Kingdom (London, Belfast)
 TimeChangeRule BST = {"BST", Last, Sun, Mar, 1, 60};        //British Summer (Daylight saving) Time

@@ -49,7 +49,8 @@
 #else
 #include <WiFi.h>
 #endif
-
+#include <ArduinoOTA.h>
+String OTAhostname = "Bodmer_WX";  // For OTA identification.
 
 // check All_Settings.h for adapting to your needs
 #include "All_Settings.h"
@@ -151,12 +152,16 @@ void setup() {
   tft.setTextPadding(240); // Pad next drawString() text to full width to over-write old text
 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
+  Serial.print("Starting WiFi");
+  int looper = 0;
   while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
+    delay(500);
     Serial.print(".");
+    if (looper++ > 20) ESP.restart();
   }
-  Serial.println();
+  Serial.println("Wifi connected.\r\nStarting OTA.");
+  tft.drawString("Initialize OTA", 120, 240);
+  initOTA();
 
   tft.setTextDatum(BC_DATUM);
   tft.setTextPadding(240); // Pad next drawString() text to full width to over-write old text
@@ -176,6 +181,7 @@ void setup() {
 ***************************************************************************************/
 void loop() {
 
+  ArduinoOTA.handle();
   // Request and synchronise the local clock
   syncTime(); local_time = TIMEZONE.toLocal(now(), &tz1_Code);
 
@@ -191,11 +197,17 @@ void loop() {
   // If minute has changed then request new time from NTP server
   if (booted || (lastSecond != second(local_time)))
   {
+
     // Update displayed time first as we may have to wait for a response
     drawTime();
+
+    if (hour(local_time) == 5 && minute(local_time) == 0 && second(local_time) == 0 &&
+        weekday(local_time) == 4) ESP.restart();  // Weekly reboot to mitigate aging problems.
+
 #ifdef SCREEN_SERVER
     screenServer();
 #endif
+
   }
   booted = false;
   lastSecond = second(local_time);
@@ -662,10 +674,10 @@ void printWeather(void)
   Serial.println("############### Current weather ###############\n");
   Serial.print("dt (time) : "); Serial.println(strDate(current->dt));
 
-  Serial.print("sunrise    : "); Serial.println(current->sunrise);
-  Serial.print("sunset     : "); Serial.println(current->sunset);
   Serial.print("sunrise    : "); Serial.println(strDate(current->sunrise));
+  Serial.print("sunrise    : "); Serial.println(current->sunrise);
   Serial.print("sunset     : "); Serial.println(strDate(current->sunset));
+  Serial.print("sunset     : "); Serial.println(current->sunset);
 
   Serial.print("main       : "); Serial.println(current->main);
   Serial.print("temp       : "); Serial.println(current->temp);
@@ -702,7 +714,7 @@ void printWeather(void)
 ***************************************************************************************/
 String strTime(time_t unixTime)
 {
-  //  time_t local_time = TIMEZONE.toLocal(unixTime, &tz1_Code);
+  time_t local_time = TIMEZONE.toLocal(unixTime, &tz1_Code);
 
   String localTime = "";
 
@@ -719,7 +731,9 @@ String strTime(time_t unixTime)
 ***************************************************************************************/
 String strDate(time_t unixTime)
 {
-  //  time_t local_time = TIMEZONE.toLocal(unixTime, &tz1_Code);
+  Serial.print("Input to strDate: "); Serial.println(unixTime);
+  
+  time_t local_time = TIMEZONE.toLocal(unixTime, &tz1_Code);
 
   String localDate = "";
 
@@ -730,7 +744,13 @@ String strDate(time_t unixTime)
 
   return localDate;
 }
-
+/****************************************************************************/
+void initOTA()
+/****************************************************************************/
+{
+  ArduinoOTA.setHostname(OTAhostname.c_str()); //define OTA port hostname
+  ArduinoOTA.begin();
+}
 /**The MIT License (MIT)
   Copyright (c) 2015 by Daniel Eichhorn
   Permission is hereby granted, free of charge, to any person obtaining a copy

@@ -3,4 +3,7 @@ This is a modification of code from Bodmer (author or tft_eSPI) with some fixups
 
 You may want to edit the hourly brilliance table depending on your needs.  It sets the brightness of the display each hour.  Max is 255, min is 0 (off).
 
+Latest addition is an hourly forecast that alternates with the daily forecast based on a switch.  To use this, you need to obtain the library that has the support code for this project, here: https://github.com/Bodmer/OpenWeather
+Then after you install, edit the file User_Setup.h and change one line.  That line is on line 9 of the file and defines the maximum number of hours that will be parsed from the hourly forecast.  I think it is set to 6 by default.  You need to change that to 12, save it and compile the program.
+
 Enjoy.

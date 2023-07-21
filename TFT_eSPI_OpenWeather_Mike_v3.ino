@@ -65,6 +65,7 @@ String OTAhostname = "Bodmer_WX";  // For OTA identification.
 #include <OpenWeather.h>  // Latest here: https://github.com/Bodmer/OpenWeather
 String wind[] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW" };
 int hourlySR, hourlyDT, hourlySS;  // 3 times used to find sunset/rise and compare to hourly dt.
+int initialHourlyVal;  // Hour for leftmost column of hourly data.
 
 #include "NTP_Time.h"     // Attached to this sketch, see that tab for library needs
 time_t local_time;
@@ -538,6 +539,8 @@ void drawForecast() {
 void drawHourlyForecastDetail(uint16_t x, uint16_t y, uint8_t hourIndex) {
 
   int iHour = hour(TIMEZONE.toLocal(hourly->dt[hourIndex], &tz1_Code));
+  if (hourIndex == 1) initialHourlyVal = iHour;
+  // Save off the hour.  Then any smaller hour uses tomorrow's sunrise/set
   String jHour  = "";
   if (iHour < 10)
     jHour = "0" + String(iHour);
@@ -560,9 +563,9 @@ void drawHourlyForecastDetail(uint16_t x, uint16_t y, uint8_t hourIndex) {
     Temp += " F";
 
   tft.drawString(Temp, x + 25, y + 17);
-  Serial.println("\r\nGetting Hourly ICONs");
-  Serial.printf("hourIndex %i, Hour %i, ID / 100 %i, current->sunrise %i, current->dt %i, current->sunset %i\r\n",
-                hourIndex,     iHour, hourly->id[hourIndex] / 100, current->sunrise, current->dt, current->sunset);
+  //  Serial.println("\r\nGetting Hourly ICONs");
+  //  Serial.printf("hourIndex %i, Hour %i, ID / 100 %i, current->sunrise %i, current->dt %i, current->sunset %i\r\n",
+  //                hourIndex,     iHour, hourly->id[hourIndex] / 100, current->sunrise, current->dt, current->sunset);
 
   // Get ICON name for hourly column
   String weatherIcon = getMeteoconIcon(hourly->id[hourIndex], hourly->dt[hourIndex], true);  // qwer
@@ -664,19 +667,22 @@ void drawAstronomy() {
 ***************************************************************************************/
 const char* getMeteoconIcon(uint16_t id, time_t myDT, bool cvtToNight)
 {
-  Serial.printf("Shall we convert?\t%s\r\n", cvtToNight ? "Yes" : "No");
-
-  Serial.printf("id %i,  id / 8   %i\r\n", id, id / 100);
-
   if (cvtToNight) {  // Only needed for the hourly display columns' ICON
-    hourlySR = hour(TIMEZONE.toLocal(current->sunrise, &tz1_Code));
-    hourlyDT = hour(TIMEZONE.toLocal(myDT, &tz1_Code));
-    hourlySS = hour(TIMEZONE.toLocal(current->sunset, &tz1_Code));
+
+    hourlyDT = hour(TIMEZONE.toLocal(myDT, &tz1_Code));  // Hour for this column.
+
+    if (hourlyDT < initialHourlyVal) {  // If we have wrapped the clock, use tomorrow's sunrise/set.
+      Serial.printf("Using tomorrow's sunrise/set values for start hour %02i, current hour %02i.\r\n",
+                    initialHourlyVal, hourlyDT);
+      hourlySR = hour(TIMEZONE.toLocal(daily->sunrise[1], &tz1_Code));
+      hourlySS = hour(TIMEZONE.toLocal(daily->sunset[1], &tz1_Code));
+    } else {
+      Serial.printf("Using today's    sunrise/set values for start hour %02i, current hour %02i.\r\n",
+                    initialHourlyVal, hourlyDT);
+      hourlySR = hour(TIMEZONE.toLocal(daily->sunrise[0], &tz1_Code));
+      hourlySS = hour(TIMEZONE.toLocal(daily->sunset[0], &tz1_Code));
+    }
     if (id / 100 == 8 && (hourlyDT < hourlySR || hourlyDT > hourlySS)) id += 1000;  // Night for Day.
-    //    Serial.printf("hour(current->sunrise) %i - %s\r\n", hourlySR, strTime(current->sunrise));
-    //    Serial.printf("hour(myDT)             %i - %s\r\n", hourlyDT, strTime(myDT));
-    //    Serial.printf("hour(current->sunset)  %i - %s\r\n", hourlySS, strTime(current->sunset));
-    //    Serial.printf("After: id %i\r\n", id);
   }
   if (id / 100 == 2)          return "thunderstorm";
   if (id / 100 == 3)          return "drizzle";
@@ -809,9 +815,8 @@ void printWeather(void)
     Serial.print("id       : "); Serial.println(daily->id[i]);
     Serial.print("temp_max : "); Serial.println(daily->temp_max[i]);
     Serial.print("temp_min : "); Serial.println(daily->temp_min[i]);
-
-    Serial.print("moonrise : "); Serial.println(daily->moonrise[i]);
-    Serial.print("moonset  : "); Serial.println(daily->moonset[i]);
+    // Serial.print("moonrise : "); Serial.println(daily->moonrise[i]);
+    // Serial.print("moonset  : "); Serial.println(daily->moonset[i]);
     Serial.print("moonrise : "); Serial.println(strDate(daily->moonrise[i]));
     Serial.print("moonset  : "); Serial.println(strDate(daily->moonset[i]));
 

@@ -63,6 +63,8 @@ String OTAhostname = "Bodmer_WX";  // For OTA identification.
 #include <JSON_Decoder.h> // https://github.com/Bodmer/JSON_Decoder
 
 #include <OpenWeather.h>  // Latest here: https://github.com/Bodmer/OpenWeather
+String wind[] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW" };
+int hourlySR, hourlyDT, hourlySS;  // 3 times used to find sunset/rise and compare to hourly dt.
 
 #include "NTP_Time.h"     // Attached to this sketch, see that tab for library needs
 time_t local_time;
@@ -155,7 +157,7 @@ void setup() {
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
-    if (looper++ > 20) ESP.restart();
+    if (looper++ > 20) ESP.restart();  // 10 seconds then give up and reboot to retry.
   }
   Serial.println("WiFi connected.\r\nStarting OTA.");
   //  tft.drawString("Initialize OTA", 120, 240);  // This is gone so fast it is never seen.
@@ -175,7 +177,7 @@ void setup() {
   ow.partialDataSet(false); // Collect the full set of available data
   tft.fillScreen(TFT_BLACK);
 
-  // Dummy create to make delete happy
+  // Dummy create to make the later "delete" happy.  At least, I think it is needed.
   current = new OW_current;
   daily =   new OW_daily;
   hourly =  new OW_hourly;
@@ -191,7 +193,7 @@ void loop() {
     delay(50);
     if (digitalRead(changeForecastTypePin) == LOW) {    // Still pressed?
       doDailyForecast = !doDailyForecast;
-      // This is done later, at the modulo 10 minute to save wear and tear on the flash.
+      // This is done later, on the modulo 10 minute to save wear on the flash.
       //      preferences.begin("BodmerWX", false);
       //      preferences.putBool("ForecastType", doDailyForecast);
       //      preferences.end();
@@ -429,7 +431,7 @@ void drawCurrentWeather() {
   String currentSummary = current->main;
   currentSummary.toLowerCase();
 
-  weatherIcon = getMeteoconIcon(current->id, true);
+  weatherIcon = getMeteoconIcon(current->id, current->dt, true);
 
   //uint32_t dt = millis();
   ui.drawBmp("/icon/" + weatherIcon + ".bmp", 0, 53);
@@ -494,8 +496,8 @@ void drawCurrentWeather() {
 
   int windAngle = (current->wind_deg + 22.5) / 45;
   if (windAngle > 7) windAngle = 0;
-  String wind[] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW" };
-  ui.drawBmp("/wind/" + wind[windAngle] + ".bmp", 101, 86);
+  //  String wind[] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW" };
+  ui.drawBmp("/wind/" + wind[windAngle] + ".bmp", 101, 84);
 
   drawSeparator(153);
 
@@ -558,8 +560,12 @@ void drawHourlyForecastDetail(uint16_t x, uint16_t y, uint8_t hourIndex) {
     Temp += " F";
 
   tft.drawString(Temp, x + 25, y + 17);
+  Serial.println("\r\nGetting Hourly ICONs");
+  Serial.printf("hourIndex %i, Hour %i, ID / 100 %i, current->sunrise %i, current->dt %i, current->sunset %i\r\n",
+                hourIndex,     iHour, hourly->id[hourIndex] / 100, current->sunrise, current->dt, current->sunset);
 
-  String weatherIcon = getMeteoconIcon(hourly->id[hourIndex], true);
+  // Get ICON name for hourly column
+  String weatherIcon = getMeteoconIcon(hourly->id[hourIndex], hourly->dt[hourIndex], true);  // qwer
 
   ui.drawBmp("/icon50/" + weatherIcon + ".bmp", x, y + 18);
 
@@ -588,7 +594,8 @@ void drawDailyForecastDetail(uint16_t x, uint16_t y, uint8_t dayIndex) {
   String lowTemp  = String(daily->temp_min[dayIndex], 0);
   tft.drawString(lowTemp + "-" + highTemp, x + 25, y + 17);
 
-  String weatherIcon = getMeteoconIcon(daily->id[dayIndex], false);
+  // Get ICON name for daily column
+  String weatherIcon = getMeteoconIcon(daily->id[dayIndex], current->dt, false);
 
   ui.drawBmp("/icon50/" + weatherIcon + ".bmp", x, y + 18);
 
@@ -655,35 +662,41 @@ void drawAstronomy() {
 /***************************************************************************************
 **                          Get the icon file name from the index number
 ***************************************************************************************/
-const char* getMeteoconIcon(uint16_t id, bool today)
+const char* getMeteoconIcon(uint16_t id, time_t myDT, bool cvtToNight)
 {
-  if ( today && id / 100 == 8 && (current->dt < current->sunrise || current->dt > current->sunset)) id += 1000;
+  Serial.printf("Shall we convert?\t%s\r\n", cvtToNight ? "Yes" : "No");
 
-  if (id / 100 == 2) return "thunderstorm";
-  if (id / 100 == 3) return "drizzle";
-  if (id / 100 == 4) return "unknown";
-  if (id == 500)
-    return "lightRain";
-  else if (id == 511)
-    return "sleet";
-  else if (id / 100 == 5)
-    return "rain";
-  if (id >= 611 && id <= 616)
-    return "sleet";
-  else if (id / 100 == 6)
-    return "snow";
-  if (id / 100 == 7) return "fog";
-  if (id == 800) return "clear-day";
-  if (id == 801) return "partly-cloudy-day";
-  if (id == 802) return "cloudy";
-  if (id == 803) return "cloudy";
-  if (id == 804) return "cloudy";
-  if (id == 1800) return "clear-night";
-  if (id == 1801) return "partly-cloudy-night";
-  if (id == 1802) return "cloudy";
-  if (id == 1803) return "cloudy";
-  if (id == 1804) return "cloudy";
+  Serial.printf("id %i,  id / 8   %i\r\n", id, id / 100);
 
+  if (cvtToNight) {  // Only needed for the hourly display columns' ICON
+    hourlySR = hour(TIMEZONE.toLocal(current->sunrise, &tz1_Code));
+    hourlyDT = hour(TIMEZONE.toLocal(myDT, &tz1_Code));
+    hourlySS = hour(TIMEZONE.toLocal(current->sunset, &tz1_Code));
+    if (id / 100 == 8 && (hourlyDT < hourlySR || hourlyDT > hourlySS)) id += 1000;  // Night for Day.
+    //    Serial.printf("hour(current->sunrise) %i - %s\r\n", hourlySR, strTime(current->sunrise));
+    //    Serial.printf("hour(myDT)             %i - %s\r\n", hourlyDT, strTime(myDT));
+    //    Serial.printf("hour(current->sunset)  %i - %s\r\n", hourlySS, strTime(current->sunset));
+    //    Serial.printf("After: id %i\r\n", id);
+  }
+  if (id / 100 == 2)          return "thunderstorm";
+  if (id / 100 == 3)          return "drizzle";
+  if (id / 100 == 4)          return "unknown";
+  if (id == 500)              return "lightRain";
+  else if (id == 511)         return "sleet";
+  else if (id / 100 == 5)     return "rain";
+  if (id >= 611 && id <= 616) return "sleet";
+  else if (id / 100 == 6)     return "snow";
+  if (id / 100 == 7)          return "fog";
+  if (id == 800)              return "clear-day";
+  if (id == 801)              return "partly-cloudy-day";
+  if (id == 802)              return "cloudy";
+  if (id == 803)              return "cloudy";
+  if (id == 804)              return "cloudy";
+  if (id == 1800)             return "clear-night";
+  if (id == 1801)             return "partly-cloudy-night";
+  if (id == 1802)             return "cloudy";
+  if (id == 1803)             return "cloudy";
+  if (id == 1804)             return "cloudy";
   return "unknown";
 }
 /***************************************************************************************

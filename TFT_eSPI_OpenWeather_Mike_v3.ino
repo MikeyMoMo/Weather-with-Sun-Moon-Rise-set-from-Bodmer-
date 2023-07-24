@@ -1,5 +1,6 @@
 //  Example from OpenWeather library: https://github.com/Bodmer/OpenWeather
 //  Adapted by Bodmer to use the TFT_eSPI library:  https://github.com/Bodmer/TFT_eSPI
+//  Adapted by Mike Morrow to do a bunch of other things.  Notes at the end.
 
 //  This sketch is compatible with the ESP8266 and ESP32
 
@@ -64,8 +65,8 @@ String OTAhostname = "Bodmer_WX";  // For OTA identification.
 
 #include <OpenWeather.h>  // Latest here: https://github.com/Bodmer/OpenWeather
 String wind[] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW" };
-int hourlySR, hourlyDT, hourlySS;  // 3 times used to find sunset/rise and compare to hourly dt.
-int initialHourlyVal;  // Hour for leftmost column of hourly data.
+float hourlySR, hourlyDT, hourlySS;  // 3 times used to find sunset/rise and compare to hourly dt.
+float initialHourlyVal = 0.;  // Hour for leftmost column of hourly data.
 
 #include "NTP_Time.h"     // Attached to this sketch, see that tab for library needs
 time_t local_time;
@@ -82,7 +83,7 @@ OW_current *current; // Pointers to structs that temporarily holds weather data
 OW_hourly  *hourly;  // Not used
 OW_daily   *daily;
 
-boolean booted = true;
+boolean Initial = true;
 
 GfxUi ui = GfxUi(&tft); // Jpeg and bmpDraw functions TODO: pull outside of a class
 
@@ -100,6 +101,7 @@ void setup() {
   tft.fillScreen(TFT_BLACK);
 
   pinMode(changeForecastTypePin, INPUT);
+  pinMode(show24HoursForecastPin, INPUT);
 
   // The begin() method opens a “storage space” with a defined namespace.
   // The false argument means that we’ll use it in read/write mode.
@@ -193,6 +195,7 @@ void loop() {
   if (digitalRead(changeForecastTypePin) == LOW) {  // Pressed?
     delay(50);
     if (digitalRead(changeForecastTypePin) == LOW) {    // Still pressed?
+      Serial.println("Switching mini-forecast type.");
       doDailyForecast = !doDailyForecast;
       // This is done later, on the modulo 10 minute to save wear on the flash.
       //      preferences.begin("BodmerWX", false);
@@ -205,11 +208,21 @@ void loop() {
     while (digitalRead(changeForecastTypePin) == LOW); // Wait for unpress
   }
 
+  if (digitalRead(show24HoursForecastPin) == LOW) {  // Pressed?
+    delay(50);
+    if (digitalRead(show24HoursForecastPin) == LOW) {   // Still pressed?
+      Serial.println("Showing 24 2-hourly forecast columns for up to 60 seconds.");
+      while (digitalRead(changeForecastTypePin) == LOW); // Wait for unpress
+      show24Forecast();
+      Initial = true; updateData(false); Initial = false;  // updateData(false) says don't refetch
+      while (digitalRead(changeForecastTypePin) == LOW);   // Wait for unpress
+    }
+  }
 
   // Request time (may not result in a call to NTP server) and synchronise the local clock
   syncTime(); local_time = TIMEZONE.toLocal(now(), &tz1_Code);
 
-  if (booted || (lastSecond != second()))
+  if (Initial || (lastSecond != second()))
   {
     if (hour(local_time) == 5 && minute(local_time) == 0 && second(local_time) == 0 &&
         weekday(local_time) == 4) ESP.restart();  // Weekly reboot to mitigate aging problems.
@@ -227,11 +240,12 @@ void loop() {
   //  minute(local_time) & 15.  Same for any other repeat time.
   //  Be sure to also check for second(local_time) == 0 lest it repeat
   //  for the whole minute.
-  if (booted || (lastHour != hour(local_time)))
+  if (Initial || (lastHour != hour(local_time)))
   {
     Serial.printf("Setting screen brightness for hour %i to %i\r\n",
                   hour(local_time), hourlyBrilliance[hour(local_time)]);
     ledcWrite(pwmLedChannelTFT, hourlyBrilliance[hour(local_time)]);  // Reset display blacklighting.
+    // updateData();  // Comment below and uncomment this for hourly.
   }
   if (minute(local_time) % 10 == 0 && second(local_time) < 2) {  // Window open for 2 seconds only.
     preferences.begin("BodmerWX", false);
@@ -243,103 +257,139 @@ void loop() {
     preferences.end();
   }
   // The 15, in the "if" means update 4 times per hour on the modulo 15 minute.
+  // Same for 10 or whatever, 1 to 60.  There are 1000 free calls per DAY!
   // The second() == 0 part is to ensure that it does not happen more than once
-  //  during that minute for a maximum of 4 times per hour.
-  if (booted || (minute(local_time) % 15 == 0 && second(local_time) == 0)) updateData();
+  //  during that minute for a maximum of one time per update window.
+  // Comment this and uncomment above for hourly.
+  if (Initial || (minute(local_time) % 15 == 0 && second(local_time) == 0))
+    updateData(true);  // 10 minute update ^^ or change to something else as you wish.
 
-  booted = false;
+  Initial = false;
   lastSecond = second(local_time);
   lastMinute = minute(local_time);
   lastHour   = hour(local_time);
 }
 /***************************************************************************************
+** Show 12 Hourly forcasts spaced by 2 hours.
+***************************************************************************************/
+void show24Forecast() {
+
+  byte bIndex = 1;
+  tft.loadFont(AA_FONT_SMALL);
+
+  tft.fillScreen(TFT_BLACK);
+  drawHourlyForecastDetail(  8,  15, bIndex); bIndex += 2;
+  drawHourlyForecastDetail( 66,  15, bIndex); bIndex += 2;
+  drawHourlyForecastDetail(124,  15, bIndex); bIndex += 2;
+  drawHourlyForecastDetail(182,  15, bIndex); bIndex += 2;
+  drawHourlyForecastDetail(  8, 115, bIndex); bIndex += 2;
+  drawHourlyForecastDetail( 66, 115, bIndex); bIndex += 2;
+  drawHourlyForecastDetail(124, 115, bIndex); bIndex += 2;
+  drawHourlyForecastDetail(182, 115, bIndex); bIndex += 2;
+  drawHourlyForecastDetail(  8, 215, bIndex); bIndex += 2;
+  drawHourlyForecastDetail( 66, 215, bIndex); bIndex += 2;
+  drawHourlyForecastDetail(124, 215, bIndex); bIndex += 2;
+  drawHourlyForecastDetail(182, 215, bIndex);
+  for (int loop = 0; loop < 60000; loop++) {
+    delay(1);
+    if (digitalRead(show24HoursForecastPin) == LOW) {  // Pressed?
+      delay(50);
+      if (digitalRead(show24HoursForecastPin) == LOW)     // Still pressed?
+        break;  // User requested early exit.
+    }
+  }
+  tft.unloadFont();
+  tft.fillScreen(TFT_BLACK);
+}
+/***************************************************************************************
 **                          Fetch the weather data  and update screen
 ***************************************************************************************/
 // Update the Internet based information and update screen
-void updateData() {
-  bool parsed;
-  // booted = true;  // Test only
-  // booted = false; // Test only
+void updateData(bool doFetch) {
+  bool parsed = true;
+  // Initial = true;  // Test only
+  // Initial = false; // Test only
 
-  if (booted)
-    drawProgress(20, "Updating time...");
-  else
-    fillSegment(22, 22, 0, (int) (20 * 3.6), 16, TFT_NAVY);
+  if (doFetch) {
+    if (Initial)
+      drawProgress(20, "Updating time...");
+    else
+      fillSegment(22, 22, 0, (int) (20 * 3.6), 16, TFT_NAVY);
 
-  if (booted)
-    drawProgress(50, "Updating conditions...");
-  else
-    fillSegment(22, 22, 0, (int) (50 * 3.6), 16, TFT_NAVY);
+    if (Initial)
+      drawProgress(50, "Updating conditions...");
+    else
+      fillSegment(22, 22, 0, (int) (50 * 3.6), 16, TFT_NAVY);
 
-  // Delete to free up space
-  delete current;
-  delete hourly;
-  delete daily;
-  // Create the structures that hold the retrieved weather
-  current = new OW_current;
-  daily =   new OW_daily;
-  hourly =  new OW_hourly;
+    // Delete to free up space
+    delete current;
+    delete hourly;
+    delete daily;
+    // Create the structures that hold the retrieved weather
+    current = new OW_current;
+    daily =   new OW_daily;
+    hourly =  new OW_hourly;
 
 #ifdef RANDOM_LOCATION // Randomly choose a place on Earth to test icons etc
-  String latitude = "";
-  latitude = (random(180) - 90);
-  String longitude = "";
-  longitude = (random(360) - 180);
-  Serial.print("Lat = "); Serial.print(latitude);
-  Serial.print(", Lon = "); Serial.println(longitude);
+    String latitude = "";
+    latitude = (random(180) - 90);
+    String longitude = "";
+    longitude = (random(360) - 180);
+    Serial.print("Lat = "); Serial.print(latitude);
+    Serial.print(", Lon = "); Serial.println(longitude);
 #endif
 
-  //On the ESP8266 (only) the library by default uses BearSSL, another option is to use AXTLS
-  //For problems with ESP8266 stability, use AXTLS by adding a false parameter thus       vvvvv
-  //ow.getForecast(current, hourly, daily, api_key, latitude, longitude, units, language, false);
-  Serial.print("\r\n---->>>> Getting Forecast at "); printLocalTime();
-  parsed = ow.getForecast(current, hourly, daily, api_key, latitude, longitude, units, language);
-
-  if (parsed) {
-    Serial.println("Data points received on first try.");
-  } else {
-    Serial.println("Failed to get data points. Trying a second time...");
+    //On the ESP8266 (only) the library by default uses BearSSL, another option is to use AXTLS
+    //For problems with ESP8266 stability, use AXTLS by adding a false parameter thus       vvvvv
+    //ow.getForecast(current, hourly, daily, api_key, latitude, longitude, units, language, false);
+    Serial.print("\r\n---->>>> Getting Weather data at "); printLocalTime();
     parsed = ow.getForecast(current, hourly, daily, api_key, latitude, longitude, units, language);
+
     if (parsed) {
-      Serial.println("Data points received on 2nd try.");
+      Serial.println("Data points received on first try.");
     } else {
-      Serial.println("Failed to get data points. Trying last time...");
+      Serial.println("Failed to get data points. Trying a second time...");
       parsed = ow.getForecast(current, hourly, daily, api_key, latitude, longitude, units, language);
       if (parsed) {
-        Serial.println("Data points received on 3rd try.");
+        Serial.println("Data points received on 2nd try.");
       } else {
-        Serial.println("No data received.  Check WiFi and Internet connections.");
-        Serial.println("Waiting 1 minute then rebooting to try again.");
-        tft.fillScreen(TFT_BLACK);
-        tft.loadFont(AA_FONT_SMALL);
-        tft.setTextDatum(BC_DATUM);
-        tft.setTextColor(TFT_RED, TFT_BLACK);
-        tft.drawString("Cannot get weather data.", tft.width() / 2, 100);
-        tft.setTextColor(TFT_ORANGE, TFT_BLACK);
-        tft.drawString("Waiting 1 minute,",      tft.width() / 2, 150);
-        tft.drawString("then rebooting.",          tft.width() / 2, 200);
-        delay(60000);
-        ESP.restart();
+        Serial.println("Failed to get data points. Trying last time...");
+        parsed = ow.getForecast(current, hourly, daily, api_key, latitude, longitude, units, language);
+        if (parsed) {
+          Serial.println("Data points received on 3rd try.");
+        } else {
+          Serial.println("No data received.  Check WiFi and Internet connections.");
+          Serial.println("Waiting 1 minute then rebooting to try again.");
+          tft.fillScreen(TFT_BLACK);
+          tft.loadFont(AA_FONT_SMALL);
+          tft.setTextDatum(BC_DATUM);
+          tft.setTextColor(TFT_RED, TFT_BLACK);
+          tft.drawString("Cannot get weather data.", tft.width() / 2, 100);
+          tft.setTextColor(TFT_ORANGE, TFT_BLACK);
+          tft.drawString("Waiting 1 minute,",      tft.width() / 2, 150);
+          tft.drawString("then rebooting.",          tft.width() / 2, 200);
+          delay(60000);
+          ESP.restart();
+        }
       }
     }
-  }
+    Serial.print("Free heap = "); Serial.println(ESP.getFreeHeap(), DEC);
 
-  Serial.print("Free heap = "); Serial.println(ESP.getFreeHeap(), DEC);
+    printWeather(); // For debug, turn on output with #define SERIAL_MESSAGES
 
-  printWeather(); // For debug, turn on output with #define SERIAL_MESSAGES
+    if (Initial)
+    {
+      drawProgress(100, "Done...");
+      delay(2000);
+      tft.fillScreen(TFT_BLACK);
+    }
+    else
+    {
+      fillSegment(22, 22, 0, 360, 16, TFT_NAVY);
+      fillSegment(22, 22, 0, 360, 22, TFT_BLACK);
+    }
 
-  if (booted)
-  {
-    drawProgress(100, "Done...");
-    delay(2000);
-    tft.fillScreen(TFT_BLACK);
-  }
-  else
-  {
-    fillSegment(22, 22, 0, 360, 16, TFT_NAVY);
-    fillSegment(22, 22, 0, 360, 22, TFT_BLACK);
-  }
-
+  }  // if (doFetch)
   if (parsed)
   {
     tft.loadFont(AA_FONT_SMALL);
@@ -352,7 +402,7 @@ void updateData() {
     // loading and unloading font which takes time
     tft.loadFont(AA_FONT_LARGE);
     tft.setTextDatum(TR_DATUM);
-    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
 
     // Font ASCII code 0xB0 is a degree symbol, but o used instead in small font
     tft.setTextPadding(tft.textWidth(" -88")); // Max width of values
@@ -366,7 +416,6 @@ void updateData() {
   {
     Serial.println("Failed to get weather");
   }
-
 }
 /***************************************************************************************
 **                          Update progress bar
@@ -394,16 +443,9 @@ void drawTime() {
   //  time_t local_time = TIMEZONE.toLocal(now(), &tz1_Code);
 
   String timeNow = "";
-
-  if (hour(local_time) < 10) timeNow += "0";
-  timeNow += hour(local_time);
-  timeNow += ":";
-  if (minute(local_time) < 10) timeNow += "0";
-  timeNow += minute(local_time);
-  timeNow += ":";
-  if (second(local_time) < 10) timeNow += "0";
-  timeNow += second(local_time);
-
+  if (hour(local_time) < 10)     timeNow += "0"; timeNow += hour(local_time);   timeNow += ":";
+  if (minute(local_time) < 10)   timeNow += "0"; timeNow += minute(local_time); timeNow += ":";
+  if (second(local_time) < 10)   timeNow += "0"; timeNow += second(local_time);
   tft.setTextDatum(BL_DATUM);
   tft.setTextColor(TFT_YELLOW, TFT_BLACK);
   tft.setTextPadding(tft.textWidth(" 44:44 "));  // String width + margin
@@ -412,7 +454,6 @@ void drawTime() {
   drawSeparator(51);
 
   tft.setTextPadding(0);
-
   tft.unloadFont();
 }
 /***************************************************************************************
@@ -432,6 +473,8 @@ void drawCurrentWeather() {
   String currentSummary = current->main;
   currentSummary.toLowerCase();
 
+  initialHourlyVal  = float(hour(TIMEZONE.toLocal(current->dt, &tz1_Code))) +
+                      float(hour(TIMEZONE.toLocal(current->dt, &tz1_Code))) / 60.;
   weatherIcon = getMeteoconIcon(current->id, current->dt, true);
 
   //uint32_t dt = millis();
@@ -517,18 +560,18 @@ void drawCurrentWeather() {
 //
 void drawForecast() {
 
-  int8_t iIndex = 1;
+  int8_t bIndex = 1;
 
   if (doDailyForecast) {  // Either do four columms of dailies or ...
-    drawDailyForecastDetail(  8, 171, iIndex++);
-    drawDailyForecastDetail( 66, 171, iIndex++);
-    drawDailyForecastDetail(124, 171, iIndex++);
-    drawDailyForecastDetail(182, 171, iIndex  );
-  } else {  // ...four columns of hourlys starting with the next hour, then +3 hours each.
-    drawHourlyForecastDetail(  8, 171, iIndex); iIndex += 3;
-    drawHourlyForecastDetail( 66, 171, iIndex); iIndex += 3;
-    drawHourlyForecastDetail(124, 171, iIndex); iIndex += 3;
-    drawHourlyForecastDetail(182, 171, iIndex );
+    drawDailyForecastDetail(  8, 171, bIndex++);
+    drawDailyForecastDetail( 66, 171, bIndex++);
+    drawDailyForecastDetail(124, 171, bIndex++);
+    drawDailyForecastDetail(182, 171, bIndex  );
+  } else {  // ...four columns of hourlys starting with the next hour, then +3 hours each * 3.
+    drawHourlyForecastDetail(  8, 171, bIndex); bIndex += 3;
+    drawHourlyForecastDetail( 66, 171, bIndex); bIndex += 3;
+    drawHourlyForecastDetail(124, 171, bIndex); bIndex += 3;
+    drawHourlyForecastDetail(182, 171, bIndex );
   }
   drawSeparator(171 + 69);
 }
@@ -539,7 +582,7 @@ void drawForecast() {
 void drawHourlyForecastDetail(uint16_t x, uint16_t y, uint8_t hourIndex) {
 
   int iHour = hour(TIMEZONE.toLocal(hourly->dt[hourIndex], &tz1_Code));
-  if (hourIndex == 1) initialHourlyVal = iHour;
+  if (hourIndex == 1) initialHourlyVal = float(iHour);
   // Save off the hour.  Then any smaller hour uses tomorrow's sunrise/set
   String jHour  = "";
   if (iHour < 10)
@@ -597,7 +640,7 @@ void drawDailyForecastDetail(uint16_t x, uint16_t y, uint8_t dayIndex) {
   String lowTemp  = String(daily->temp_min[dayIndex], 0);
   tft.drawString(lowTemp + "-" + highTemp, x + 25, y + 17);
 
-  // Get ICON name for daily column
+  // Get ICON name for daily column. This should always show a daytime ICON, never convert.
   String weatherIcon = getMeteoconIcon(daily->id[dayIndex], current->dt, false);
 
   ui.drawBmp("/icon50/" + weatherIcon + ".bmp", x, y + 18);
@@ -667,31 +710,74 @@ void drawAstronomy() {
 ***************************************************************************************/
 const char* getMeteoconIcon(uint16_t id, time_t myDT, bool cvtToNight)
 {
+  time_t iTime;
+  //  Serial.printf("Entering getMeteoconIcon with id %i, Convert: %s, time %i\r\n",
+  //                id, cvtToNight ? "Yes" : "No", myDT);
   if (cvtToNight) {  // Only needed for the hourly display columns' ICON
-
-    hourlyDT = hour(TIMEZONE.toLocal(myDT, &tz1_Code));  // Hour for this column.
-
+    iTime = TIMEZONE.toLocal(myDT, &tz1_Code);
+    hourlyDT = float(hour(iTime)) + float(minute(iTime)) / 60.; // Hour for this column.
     if (hourlyDT < initialHourlyVal) {  // If we have wrapped the clock, use tomorrow's sunrise/set.
-      Serial.printf("Using tomorrow's sunrise/set values for start hour %02i, current hour %02i.\r\n",
-                    initialHourlyVal, hourlyDT);
-      hourlySR = hour(TIMEZONE.toLocal(daily->sunrise[1], &tz1_Code));
-      hourlySS = hour(TIMEZONE.toLocal(daily->sunset[1], &tz1_Code));
+      //      Serial.printf("Using tomorrow's sunrise/set values for start hour %.2f, forecast hour %.2f.\r\n",
+      //                    initialHourlyVal, hourlyDT);
+      iTime = TIMEZONE.toLocal(daily->sunrise[1], &tz1_Code);
+      hourlySR = float(hour(iTime)) + float(minute(iTime)) / 60.;
+
+      iTime = TIMEZONE.toLocal(daily->sunset[1], &tz1_Code);
+      //      Serial.printf("1-iTime daily sunset[1] %i\r\n", daily->sunset[1]);
+      //      Serial.printf("1-iTime daily sunset[1] %i\r\n", iTime);
+      //      Serial.printf("1-Hour computed %.2f, Minute %.2f\r\n",
+      //                    float(hour(iTime)), float(minute(iTime)) / 60.);
+      hourlySS = float(hour(iTime)) + float(minute(iTime)) / 60.;
+
+      //      Serial.printf("hourlyDT %.2f, hourlySR %.2f, hourlySS %.2f\r\n",
+      //                    hourlyDT, hourlySR, hourlySS);
     } else {
-      Serial.printf("Using today's    sunrise/set values for start hour %02i, current hour %02i.\r\n",
-                    initialHourlyVal, hourlyDT);
-      hourlySR = hour(TIMEZONE.toLocal(daily->sunrise[0], &tz1_Code));
-      hourlySS = hour(TIMEZONE.toLocal(daily->sunset[0], &tz1_Code));
+      //      Serial.printf("Using today's    sunrise/set values for start hour %.2f, current hour %.2f.\r\n",
+      //                    initialHourlyVal, hourlyDT);
+      iTime = TIMEZONE.toLocal(daily->sunrise[0], &tz1_Code);
+      hourlySR = float(hour(iTime)) + float(minute(iTime)) / 60.;
+
+      iTime = TIMEZONE.toLocal(daily->sunset[0], &tz1_Code);
+      //      Serial.printf("0-iTime daily sunset[0] %i\r\n", daily->sunset[0]);
+      //      Serial.printf("0-iTime daily sunset[0] %i\r\n", iTime);
+      //      Serial.printf("0-Hour computed %.2f, Minute %.2f\r\n",
+      //                    float(hour(iTime)), float(minute(iTime)) / 60.);
+      hourlySS = float(hour(iTime)) + float(minute(iTime)) / 60.;
+
+      //      Serial.printf("hourlyDT %.2f, hourlySR %.2f, hourlySS %.2f\r\n", hourlyDT, hourlySR, hourlySS);
     }
-    if (id / 100 == 8 && (hourlyDT < hourlySR || hourlyDT > hourlySS)) id += 1000;  // Night for Day.
+    if (id / 100 == 8 && (hourlyDT <= hourlySR || hourlyDT >= hourlySS)) id += 1000;  // Night for Day.
+    //    Serial.printf("Ending id value %i\r\n", id);
   }
+
+  //  if (id / 100 == 2)          return "thunderstorm";
+  //  if (id / 100 == 3)          return "drizzle";
+  //  if (id / 100 == 4)          return "unknown";
+  //  if (id == 500)              return "lightRain";
+  //  else if (id == 511)         return "sleet";
+  //  else if (id / 100 == 5)     return "rain";
+  //  if (id >= 611 && id <= 616) return "sleet";
+  //  else if (id / 100 == 6)     return "snow";
+  //  if (id / 100 == 7)          return "fog";
+  //  if (id == 800)              return "clear-day";
+  //  if (id == 801)              return "partly-cloudy-day";
+  //  if (id == 802)              return "cloudy";
+  //  if (id == 803)              return "cloudy";
+  //  if (id == 804)              return "cloudy";
+  //  if (id == 1800)             return "clear-night";
+  //  if (id == 1801)             return "partly-cloudy-night";
+  //  if (id == 1802)             return "cloudy";
+  //  if (id == 1803)             return "cloudy";
+  //  if (id == 1804)             return "cloudy";
+  // Those "else" bits seem totally useless since the action, if true, is to return a value, ending the subroutine.
   if (id / 100 == 2)          return "thunderstorm";
   if (id / 100 == 3)          return "drizzle";
   if (id / 100 == 4)          return "unknown";
   if (id == 500)              return "lightRain";
-  else if (id == 511)         return "sleet";
-  else if (id / 100 == 5)     return "rain";
+  if (id == 511)              return "sleet";
+  if (id / 100 == 5)          return "rain";
   if (id >= 611 && id <= 616) return "sleet";
-  else if (id / 100 == 6)     return "snow";
+  if (id / 100 == 6)          return "snow";
   if (id / 100 == 7)          return "fog";
   if (id == 800)              return "clear-day";
   if (id == 801)              return "partly-cloudy-day";
@@ -892,17 +978,16 @@ void printLocalTime() {
   // Print the UTC hour, minute and second:
 
   uint8_t hh = hour(local_time);
-  Serial.print(hh); // print the hour (86400 equals secs per day)
-
-  Serial.print(':');
   uint8_t mm = minute(local_time);
-  if (mm < 10 ) Serial.print('0');
-  Serial.print(mm); // print the minute (3600 equals secs per minute)
-
-  Serial.print(':');
   uint8_t ss = second(local_time);
-  if ( ss < 10 ) Serial.print('0');
-  Serial.println(ss); // print the second
+  //  Serial.print(hh); // print the hour (86400 equals secs per day)
+  //  Serial.print(':');
+  //  if (mm < 10 ) Serial.print('0');
+  //  Serial.print(mm); // print the minute (3600 equals secs per minute)
+  //  Serial.print(':');
+  //  if ( ss < 10 ) Serial.print('0');
+  //  Serial.println(ss); // print the second
+  Serial.printf("%02i:%02i:%02i\r\n", hh, mm, ss);
 }
 /**The MIT License (MIT)
   Copyright (c) 2015 by Daniel Eichhorn

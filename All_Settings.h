@@ -26,7 +26,7 @@
 //////////////////////////////
 // Setttings defined below
 
-#define Vers 3.20  // Added 2-hourly forecast screen
+#define Vers 4.00  // Added 2-hourly forecast screen
 
 #define WIFI_SSID      "MikeysWAP"
 #define WIFI_PASSWORD  "PW_Here"

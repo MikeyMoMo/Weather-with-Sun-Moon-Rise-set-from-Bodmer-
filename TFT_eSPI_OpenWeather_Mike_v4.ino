@@ -150,7 +150,8 @@ void setup() {
   delay(2000);
 
   tft.fillRect(0, 206, 240, 320 - 206, TFT_BLACK);
-
+  
+  tft.drawString("Morrow Weather v" + String(Vers), 120, 210);
   tft.drawString("Connecting to WiFi", 120, 240);
   tft.drawString(WIFI_SSID, 120, 270);
 
